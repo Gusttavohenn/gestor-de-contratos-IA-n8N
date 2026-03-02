@@ -1,0 +1,23 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Contract {
+  id            String   @id @default(uuid())
+  name          String   
+  fileName      String   
+  status        String   @default("Analisando")
+  aiSummary     String?
+  validityDate  String?  
+  cnpj          String? 
+  contact       String?  
+  value         String?  
+  monthlyValue  String?
+  createdAt     DateTime @default(now())
+}

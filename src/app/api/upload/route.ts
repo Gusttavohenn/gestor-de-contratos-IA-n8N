@@ -29,12 +29,18 @@ export async function POST(request: Request) {
     fs.writeFileSync(filePath, buffer);
     // -------------------------------------------------
 
+    // Campos manuais enviados junto com o upload
+    const company = formData.get('company') as string | null;
+    const manager = formData.get('manager') as string | null;
+
     // Salva o registro no banco local SQLite
     const contract = await prisma.contract.create({
       data: {
         name: file.name,
         fileName: file.name,
-        status: "Analisando"
+        status: "Analisando",
+        company: company || null,
+        manager: manager || null,
       } as any
     });
     // 6. Empacota o arquivo físico para enviar ao n8n Cloud
@@ -42,6 +48,8 @@ export async function POST(request: Request) {
     n8nFormData.append('data', file);
     n8nFormData.append('contractId', contract.id);
     n8nFormData.append('fileName', file.name);
+    if (company) n8nFormData.append('company', company);
+    if (manager) n8nFormData.append('manager', manager);
 
     const n8nUrl = process.env.N8N_WEBHOOK_URL;
     if (n8nUrl) {

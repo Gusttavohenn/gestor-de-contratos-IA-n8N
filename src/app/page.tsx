@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { 
-  UploadCloud, FileText, RefreshCw, AlertCircle, CheckCircle2, 
-  LayoutDashboard, FileSearch, ChevronDown, ChevronUp, Search, 
+import {
+  UploadCloud, FileText, RefreshCw, AlertCircle, CheckCircle2,
+  LayoutDashboard, FileSearch, ChevronDown, ChevronUp, Search,
   Download, Building2, Calendar, Phone, Trash2, DollarSign, Eye,
-  TrendingUp, Clock, ShieldAlert
+  TrendingUp, ShieldAlert, Tag, User, RotateCcw, Plus, X, Settings,
+  Pencil, Check, ArrowUpDown
 } from "lucide-react";
 
 interface ContractData {
@@ -19,8 +20,29 @@ interface ContractData {
   contact: string | null;
   value: string | null;
   monthlyValue: string | null;
+  company: string | null;
+  category: string | null;
+  renewal: string | null;
+  manager: string | null;
   createdAt: string | Date;
 }
+
+const COMPANIES = [
+  "MINAS TRADING COMPANY",
+  "CARBOAMERICA JM HOLDINGS",
+  "SULMINAS OPERAÇÕES",
+  "CONSORCIO SUL MINAS",
+  "MINAS PORT SPE LTDA",
+  "GM HOLDINGS",
+  "MM PARTICIPAÇÕES",
+] as const;
+
+const RENEWAL_OPTIONS = [
+  "Automática",
+  "Manual",
+  "Não renova",
+  "Sob consulta",
+] as const;
 
 //Helpers de Data e Valor
 
@@ -32,7 +54,7 @@ function parseBrazilianDate(dateStr: string | null): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-function getContractStatus(validityDate: string | null, aiStatus: string): {
+function getContractStatus(validityDate: string | null, aiStatus: string, renewal?: string | null): {
   label: string;
   colorClass: string;
   dotClass: string;
@@ -58,6 +80,13 @@ function getContractStatus(validityDate: string | null, aiStatus: string): {
   const diffDays = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
   if (diffDays < 0) {
+    if (renewal === 'Automática') {
+      return {
+        label: 'RENOVÁVEL',
+        colorClass: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+        dotClass: 'bg-blue-400',
+      };
+    }
     return {
       label: 'EXPIRADO',
       colorClass: 'bg-red-500/10 text-red-400 border border-red-500/20',
@@ -121,7 +150,7 @@ function StatCard({ icon: Icon, label, value, sub, accent = false }: {
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'painel' | 'analisar' | 'contratos'>('painel');
+  const [activeTab, setActiveTab] = useState<'painel' | 'analisar' | 'contratos' | 'cadastro'>('painel');
   const [contracts, setContracts] = useState<ContractData[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -130,7 +159,26 @@ export default function Home() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [contractToDelete, setContractToDelete] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('TODOS');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [companyFilter, setCompanyFilter] = useState<string>('TODAS');
+  const [sortField, setSortField] = useState<'name' | 'company' | 'value' | 'validityDate' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<ContractData>>({});
+  const ITEMS_PER_PAGE = 10;
   const isPolling = contracts.some(c => c.status !== 'Ativo');
+
+  // Novos campos do formulário de upload
+  const [selectedCompany, setSelectedCompany] = useState("");
+  const [selectedManager, setSelectedManager] = useState("");
+
+  // Categorias dinâmicas
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState("");
+
+  // Gestores dinâmicos
+  const [managers, setManagers] = useState<{ id: string; name: string }[]>([]);
+  const [newManagerName, setNewManagerName] = useState("");
 
   async function fetchContracts(silent = false) {
     if (!silent) setIsLoadingList(true);
@@ -145,8 +193,138 @@ export default function Home() {
     }
   }
 
+  async function fetchCategories() {
+    try {
+      const res = await fetch('/api/categories');
+      const data = await res.json();
+      if (Array.isArray(data)) setCategories(data);
+    } catch (e) {
+      console.error("Erro ao buscar categorias:", e);
+    }
+  }
+
+  async function addCategory() {
+    if (!newCategoryName.trim()) return;
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newCategoryName.trim() }),
+      });
+      if (res.ok) {
+        setNewCategoryName("");
+        fetchCategories();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao criar categoria");
+      }
+    } catch (e) {
+      console.error("Erro ao criar categoria:", e);
+    }
+  }
+
+  async function deleteCategory(id: string) {
+    try {
+      await fetch(`/api/categories?id=${id}`, { method: 'DELETE' });
+      fetchCategories();
+    } catch (e) {
+      console.error("Erro ao deletar categoria:", e);
+    }
+  }
+
+  async function fetchManagers() {
+    try {
+      const res = await fetch('/api/managers');
+      const data = await res.json();
+      if (Array.isArray(data)) setManagers(data);
+    } catch (e) {
+      console.error("Erro ao buscar gestores:", e);
+    }
+  }
+
+  async function addManager() {
+    if (!newManagerName.trim()) return;
+    try {
+      const res = await fetch('/api/managers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newManagerName.trim() }),
+      });
+      if (res.ok) {
+        setNewManagerName("");
+        fetchManagers();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao criar gestor");
+      }
+    } catch (e) {
+      console.error("Erro ao criar gestor:", e);
+    }
+  }
+
+  async function deleteManager(id: string) {
+    try {
+      await fetch(`/api/managers?id=${id}`, { method: 'DELETE' });
+      fetchManagers();
+    } catch (e) {
+      console.error("Erro ao deletar gestor:", e);
+    }
+  }
+
+  function startEditing(contract: ContractData) {
+    setEditingId(contract.id);
+    setEditForm({
+      name: contract.name,
+      company: contract.company,
+      category: contract.category,
+      renewal: contract.renewal,
+      manager: contract.manager,
+      validityDate: contract.validityDate,
+      cnpj: contract.cnpj,
+      contact: contract.contact,
+      value: contract.value,
+      monthlyValue: contract.monthlyValue,
+    });
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
+    try {
+      const res = await fetch('/api/contracts/edit', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editingId, ...editForm }),
+      });
+      if (res.ok) {
+        setEditingId(null);
+        fetchContracts(true);
+      } else {
+        alert("Erro ao salvar edição.");
+      }
+    } catch (e) {
+      console.error("Erro ao salvar:", e);
+    }
+  }
+
+  function toggleSort(field: 'name' | 'company' | 'value' | 'validityDate') {
+    if (sortField === field) {
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else {
+        setSortField(null);
+        setSortDirection('asc');
+      }
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setCurrentPage(1);
+  }
+
   useEffect(() => {
     fetchContracts();
+    fetchCategories();
+    fetchManagers();
   }, []);
 
   // Auto refresh
@@ -189,46 +367,90 @@ export default function Home() {
     }
   };
 
-  const filteredContracts = contracts.filter(c => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchSearch = (
-      c.name?.toLowerCase().includes(searchLower) ||
-      c.cnpj?.includes(searchTerm) ||
-      c.fileName?.toLowerCase().includes(searchLower)
-    );
-    if (!matchSearch) return false;
-    if (statusFilter === 'TODOS') return true;
-    const contractStatus = getContractStatus(c.validityDate, c.status);
-    return contractStatus.label === statusFilter;
-  });
+  const filteredContracts = contracts
+    .filter(c => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchSearch = (
+        c.name?.toLowerCase().includes(searchLower) ||
+        c.cnpj?.includes(searchTerm) ||
+        c.fileName?.toLowerCase().includes(searchLower) ||
+        c.company?.toLowerCase().includes(searchLower) ||
+        c.manager?.toLowerCase().includes(searchLower) ||
+        c.category?.toLowerCase().includes(searchLower)
+      );
+      if (!matchSearch) return false;
+      if (companyFilter !== 'TODAS' && c.company !== companyFilter) return false;
+      if (statusFilter === 'TODOS') return true;
+      const contractStatus = getContractStatus(c.validityDate, c.status, c.renewal);
+      return contractStatus.label === statusFilter;
+    })
+    .sort((a, b) => {
+      if (!sortField) return 0;
+      const dir = sortDirection === 'asc' ? 1 : -1;
+      if (sortField === 'value') {
+        return (parseMonetaryValue(a.value) - parseMonetaryValue(b.value)) * dir;
+      }
+      if (sortField === 'validityDate') {
+        const da = parseBrazilianDate(a.validityDate)?.getTime() || 0;
+        const db = parseBrazilianDate(b.validityDate)?.getTime() || 0;
+        return (da - db) * dir;
+      }
+      const va = (a[sortField] || '').toLowerCase();
+      const vb = (b[sortField] || '').toLowerCase();
+      return va.localeCompare(vb) * dir;
+    });
+
+  const totalPages = Math.ceil(filteredContracts.length / ITEMS_PER_PAGE);
+  const paginatedContracts = filteredContracts.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   const statusCounts = {
     TODOS: contracts.length,
-    VIGENTE: contracts.filter(c => getContractStatus(c.validityDate, c.status).label === 'VIGENTE').length,
-    'VENCE EM BREVE': contracts.filter(c => getContractStatus(c.validityDate, c.status).label === 'VENCE EM BREVE').length,
-    EXPIRADO: contracts.filter(c => getContractStatus(c.validityDate, c.status).label === 'EXPIRADO').length,
-    'ANALISANDO...': contracts.filter(c => getContractStatus(c.validityDate, c.status).label === 'ANALISANDO...').length,
+    VIGENTE: contracts.filter(c => getContractStatus(c.validityDate, c.status, c.renewal).label === 'VIGENTE').length,
+    'VENCE EM BREVE': contracts.filter(c => getContractStatus(c.validityDate, c.status, c.renewal).label === 'VENCE EM BREVE').length,
+    'RENOVÁVEL': contracts.filter(c => getContractStatus(c.validityDate, c.status, c.renewal).label === 'RENOVÁVEL').length,
+    EXPIRADO: contracts.filter(c => getContractStatus(c.validityDate, c.status, c.renewal).label === 'EXPIRADO').length,
+    'ANALISANDO...': contracts.filter(c => getContractStatus(c.validityDate, c.status, c.renewal).label === 'ANALISANDO...').length,
   };
 
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    if (!selectedCompany) {
+      setUploadStatus({ type: 'error', message: "Selecione a empresa do grupo antes de enviar." });
+      event.target.value = "";
+      return;
+    }
     setIsUploading(true);
     setUploadStatus(null);
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const response = await fetch("/api/upload", { method: "POST", body: formData });
-      if (!response.ok) throw new Error("Falha no upload");
-      setUploadStatus({ type: 'success', message: `Contrato enviado! A IA está extraindo os dados.` });
-      fetchContracts();
-      setTimeout(() => setActiveTab('contratos'), 1500);
-    } catch {
-      setUploadStatus({ type: 'error', message: "Erro ao enviar o arquivo." });
-    } finally {
-      setIsUploading(false);
-      if (event.target) event.target.value = "";
+    let successCount = 0;
+    let errorCount = 0;
+    for (const file of Array.from(files)) {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (selectedCompany) formData.append("company", selectedCompany);
+      if (selectedManager) formData.append("manager", selectedManager);
+      try {
+        const response = await fetch("/api/upload", { method: "POST", body: formData });
+        if (!response.ok) throw new Error("Falha no upload");
+        successCount++;
+      } catch {
+        errorCount++;
+      }
     }
+    if (errorCount === 0) {
+      setUploadStatus({ type: 'success', message: `${successCount} contrato${successCount > 1 ? 's' : ''} enviado${successCount > 1 ? 's' : ''}! A IA está extraindo os dados.` });
+    } else {
+      setUploadStatus({ type: 'error', message: `${successCount} enviado${successCount > 1 ? 's' : ''}, ${errorCount} com erro.` });
+    }
+    setSelectedCompany("");
+    setSelectedManager("");
+    fetchContracts();
+    setIsUploading(false);
+    if (event.target) event.target.value = "";
+    if (successCount > 0) setTimeout(() => setActiveTab('contratos'), 1500);
   }
 
   const DevSignature = () => (
@@ -262,6 +484,9 @@ export default function Home() {
           <button onClick={() => { setActiveTab('contratos'); fetchContracts(); }} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'contratos' ? 'bg-[#111827] text-[#C9DF8C] shadow border border-[#C9DF8C]/20' : 'text-gray-400 hover:text-gray-200'}`}>
             <FileSearch className="w-4 h-4" /> Base de Contratos
           </button>
+          <button onClick={() => setActiveTab('cadastro')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'cadastro' ? 'bg-[#111827] text-[#C9DF8C] shadow border border-[#C9DF8C]/20' : 'text-gray-400 hover:text-gray-200'}`}>
+            <Settings className="w-4 h-4" /> Cadastros
+          </button>
         </nav>
       </header>
 
@@ -270,6 +495,23 @@ export default function Home() {
         {/* ===================== PAINEL ===================== */}
         {activeTab === 'painel' && (
           <div className="flex flex-col">
+            {/* Hero */}
+            <div className="w-full bg-[#111827] rounded-2xl border border-gray-800 p-16 text-center shadow-2xl flex flex-col items-center justify-center min-h-[300px] mb-8">
+              <div className="w-16 h-16 bg-[#C9DF8C]/10 rounded-2xl flex items-center justify-center mb-6 border border-[#C9DF8C]/20">
+                <Building2 className="w-8 h-8 text-[#C9DF8C]" />
+              </div>
+              <h2 className="text-3xl font-bold text-white mb-3">Gestão Inteligente de Contratos Minas Port</h2>
+              <p className="text-gray-400 mb-8 max-w-lg text-lg">
+                Centralize, pesquise e analise documentos com a precisão da Inteligência Artificial em segundos.
+              </p>
+              <button
+                onClick={() => setActiveTab('analisar')}
+                className="bg-[#C9DF8C] hover:bg-[#b8cc7c] text-[#0A0F1A] px-8 py-4 rounded-xl font-bold transition-transform hover:scale-105 flex items-center gap-2 shadow-lg shadow-[#C9DF8C]/20"
+              >
+                <UploadCloud className="w-5 h-5" /> Iniciar Nova Análise
+              </button>
+            </div>
+
             {/* Cards de métricas */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
               <StatCard
@@ -299,51 +541,169 @@ export default function Home() {
               />
             </div>
 
-            {/* Primeira tela */}
-            <div className="w-full bg-[#111827] rounded-2xl border border-gray-800 p-16 text-center shadow-2xl flex flex-col items-center justify-center min-h-[300px]">
-              <div className="w-16 h-16 bg-[#C9DF8C]/10 rounded-2xl flex items-center justify-center mb-6 border border-[#C9DF8C]/20">
-                <Building2 className="w-8 h-8 text-[#C9DF8C]" />
-              </div>
-              <h2 className="text-3xl font-bold text-white mb-3">Gestão Inteligente de Contratos Minas Port</h2>
-              <p className="text-gray-400 mb-8 max-w-lg text-lg">
-                Centralize, pesquise e analise documentos com a precisão da Inteligência Artificial em segundos.
-              </p>
-              <button 
-                onClick={() => setActiveTab('analisar')} 
-                className="bg-[#C9DF8C] hover:bg-[#b8cc7c] text-[#0A0F1A] px-8 py-4 rounded-xl font-bold transition-transform hover:scale-105 flex items-center gap-2 shadow-lg shadow-[#C9DF8C]/20"
-              >
-                <UploadCloud className="w-5 h-5" /> Iniciar Nova Análise
-              </button>
-            </div>
+            {/* Distribuição por Categoria */}
+            {(() => {
+              const categoryBreakdown: Record<string, { count: number; total: number; monthly: number }> = {};
+              activeContracts.forEach(c => {
+                const cat = c.category || "Sem categoria";
+                if (!categoryBreakdown[cat]) categoryBreakdown[cat] = { count: 0, total: 0, monthly: 0 };
+                categoryBreakdown[cat].count++;
+                categoryBreakdown[cat].total += parseMonetaryValue(c.value);
+                categoryBreakdown[cat].monthly += parseMonetaryValue(c.monthlyValue);
+              });
+              const entries = Object.entries(categoryBreakdown).sort((a, b) => b[1].total - a[1].total);
+              const maxTotal = Math.max(...entries.map(([, v]) => v.total), 1);
+
+              return entries.length > 0 ? (
+                <div className="bg-[#111827] rounded-2xl border border-gray-800 p-6 shadow-2xl mb-8">
+                  <h3 className="text-sm font-black text-[#C9DF8C] uppercase tracking-[0.15em] flex items-center gap-2 mb-6">
+                    <Tag className="w-4 h-4" /> Distribuição por Categoria
+                  </h3>
+                  <div className="space-y-4">
+                    {entries.map(([cat, data]) => {
+                      const pct = maxTotal > 0 ? (data.total / maxTotal) * 100 : 0;
+                      return (
+                        <div key={cat}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-sm font-bold text-white">{cat}</span>
+                            <div className="flex items-center gap-4 text-xs text-gray-400">
+                              <span>{data.count} contrato{data.count !== 1 ? 's' : ''}</span>
+                              <span className="font-bold text-[#C9DF8C]">{formatCurrency(data.total)}</span>
+                              {data.monthly > 0 && (
+                                <span className="text-gray-500">{formatCurrency(data.monthly)}/mês</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="w-full bg-gray-800 rounded-full h-2.5">
+                            <div
+                              className="bg-[#C9DF8C] h-2.5 rounded-full transition-all duration-500"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null;
+            })()}
+
+            {/* Distribuição por Empresa */}
+            {(() => {
+              const companyBreakdown: Record<string, { count: number; total: number; monthly: number }> = {};
+              activeContracts.forEach(c => {
+                const comp = c.company || "Sem empresa";
+                if (!companyBreakdown[comp]) companyBreakdown[comp] = { count: 0, total: 0, monthly: 0 };
+                companyBreakdown[comp].count++;
+                companyBreakdown[comp].total += parseMonetaryValue(c.value);
+                companyBreakdown[comp].monthly += parseMonetaryValue(c.monthlyValue);
+              });
+              const entries = Object.entries(companyBreakdown).sort((a, b) => b[1].total - a[1].total);
+              const maxTotal = Math.max(...entries.map(([, v]) => v.total), 1);
+
+              return entries.length > 0 ? (
+                <div className="bg-[#111827] rounded-2xl border border-gray-800 p-6 shadow-2xl mb-8">
+                  <h3 className="text-sm font-black text-[#C9DF8C] uppercase tracking-[0.15em] flex items-center gap-2 mb-6">
+                    <Building2 className="w-4 h-4" /> Distribuição por Empresa
+                  </h3>
+                  <div className="space-y-4">
+                    {entries.map(([comp, data]) => {
+                      const pct = maxTotal > 0 ? (data.total / maxTotal) * 100 : 0;
+                      return (
+                        <div key={comp}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-sm font-bold text-white">{comp}</span>
+                            <div className="flex items-center gap-4 text-xs text-gray-400">
+                              <span>{data.count} contrato{data.count !== 1 ? 's' : ''}</span>
+                              <span className="font-bold text-[#C9DF8C]">{formatCurrency(data.total)}</span>
+                              {data.monthly > 0 && (
+                                <span className="text-gray-500">{formatCurrency(data.monthly)}/mês</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="w-full bg-gray-800 rounded-full h-2.5">
+                            <div
+                              className="bg-[#C9DF8C] h-2.5 rounded-full transition-all duration-500"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null;
+            })()}
+
             <DevSignature />
           </div>
         )}
 
         {/* ===================== ANALISAR ===================== */}
         {activeTab === 'analisar' && (
-          <div className="bg-[#111827] rounded-2xl border border-gray-800 p-10 shadow-2xl">
-            <div className="text-center mb-10">
-              <h2 className="text-2xl font-bold text-white">Processamento Automático</h2>
-              <p className="text-gray-400 mt-2">Nossa IA extrairá CNPJ, vigência, contatos e gera um resumo executivo.</p>
-            </div>
-            
-            <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-700 rounded-2xl p-16 bg-[#0A0F1A] hover:border-[#C9DF8C]/50 hover:bg-[#C9DF8C]/5 transition-all group">
-              <UploadCloud className="w-16 h-16 text-gray-600 group-hover:text-[#C9DF8C] mb-6 transition-colors" />
-              <label className={`cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
-                <input type="file" accept=".pdf" onChange={handleFileUpload} disabled={isUploading} className="hidden" />
-                <span className="bg-[#C9DF8C] hover:bg-[#b8cc7c] text-[#0A0F1A] px-8 py-3 rounded-lg font-bold transition-colors inline-block text-center shadow-lg">
-                  {isUploading ? "Processando no servidor..." : "Selecionar Documento PDF"}
-                </span>
-              </label>
-              <p className="text-sm text-gray-500 mt-4">Somente arquivos PDF</p>
+          <div className="space-y-6">
+            <div className="bg-[#111827] rounded-2xl border border-gray-800 p-10 shadow-2xl">
+              <div className="text-center mb-10">
+                <h2 className="text-2xl font-bold text-white">Processamento Automático</h2>
+                <p className="text-gray-400 mt-2">Preencha os campos abaixo e envie o PDF. A IA extrairá CNPJ, vigência, categoria, renovação e resumo.</p>
+              </div>
+
+              {/* Formulário de classificação */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                <div>
+                  <label className="block text-xs text-gray-500 uppercase font-bold tracking-wider mb-2">
+                    <Building2 className="w-4 h-4 inline mr-1.5 text-[#C9DF8C]" />
+                    Empresa do Grupo *
+                  </label>
+                  <select
+                    value={selectedCompany}
+                    onChange={(e) => setSelectedCompany(e.target.value)}
+                    className="w-full bg-[#0A0F1A] border border-gray-700 text-white rounded-xl py-3 px-4 focus:border-[#C9DF8C] outline-none transition-all appearance-none"
+                  >
+                    <option value="">Selecione a empresa...</option>
+                    {COMPANIES.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 uppercase font-bold tracking-wider mb-2">
+                    <User className="w-4 h-4 inline mr-1.5 text-[#C9DF8C]" />
+                    Gestor do Contrato
+                  </label>
+                  <select
+                    value={selectedManager}
+                    onChange={(e) => setSelectedManager(e.target.value)}
+                    className="w-full bg-[#0A0F1A] border border-gray-700 text-white rounded-xl py-3 px-4 focus:border-[#C9DF8C] outline-none transition-all appearance-none"
+                  >
+                    <option value="">Selecione o gestor...</option>
+                    {managers.map(m => (
+                      <option key={m.id} value={m.name}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Upload area */}
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-700 rounded-2xl p-16 bg-[#0A0F1A] hover:border-[#C9DF8C]/50 hover:bg-[#C9DF8C]/5 transition-all group">
+                <UploadCloud className="w-16 h-16 text-gray-600 group-hover:text-[#C9DF8C] mb-6 transition-colors" />
+                <label className={`cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <input type="file" accept=".pdf" multiple onChange={handleFileUpload} disabled={isUploading} className="hidden" />
+                  <span className="bg-[#C9DF8C] hover:bg-[#b8cc7c] text-[#0A0F1A] px-8 py-3 rounded-lg font-bold transition-colors inline-block text-center shadow-lg">
+                    {isUploading ? "Processando no servidor..." : "Selecionar Documentos PDF"}
+                  </span>
+                </label>
+                <p className="text-sm text-gray-500 mt-4">Somente arquivos PDF — selecione um ou vários</p>
+              </div>
+
+              {uploadStatus && (
+                <div className={`mt-6 p-4 rounded-xl flex items-center gap-3 font-medium ${uploadStatus.type === 'success' ? 'bg-[#C9DF8C]/10 text-[#C9DF8C] border border-[#C9DF8C]/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                  {uploadStatus.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertCircle className="w-5 h-5"/>}
+                  {uploadStatus.message}
+                </div>
+              )}
             </div>
 
-            {uploadStatus && (
-              <div className={`mt-6 p-4 rounded-xl flex items-center gap-3 font-medium ${uploadStatus.type === 'success' ? 'bg-[#C9DF8C]/10 text-[#C9DF8C] border border-[#C9DF8C]/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                {uploadStatus.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertCircle className="w-5 h-5"/>}
-                {uploadStatus.message}
-              </div>
-            )}
           </div>
         )}
 
@@ -358,7 +718,7 @@ export default function Home() {
                   placeholder="Pesquisar por empresa, arquivo ou CNPJ..." 
                   className="w-full bg-[#111827] border border-gray-800 text-white placeholder-gray-500 rounded-xl py-4 pl-12 pr-4 focus:border-[#C9DF8C] outline-none transition-all shadow-lg"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 />
               </div>
               <button onClick={() => fetchContracts()} className="px-6 py-4 bg-[#111827] border border-gray-800 rounded-xl hover:bg-gray-800 transition-colors shadow-lg flex items-center gap-2 text-gray-300">
@@ -373,18 +733,58 @@ export default function Home() {
               )}
             </div>
 
+            {/* Filtro por empresa + ordenação */}
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <select
+                  value={companyFilter}
+                  onChange={(e) => { setCompanyFilter(e.target.value); setCurrentPage(1); }}
+                  className="w-full bg-[#111827] border border-gray-800 text-white rounded-xl py-3 px-4 focus:border-[#C9DF8C] outline-none transition-all shadow-lg appearance-none text-sm"
+                >
+                  <option value="TODAS">Todas as empresas</option>
+                  {COMPANIES.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-1">
+                {([
+                  { field: 'name' as const, label: 'Nome' },
+                  { field: 'company' as const, label: 'Empresa' },
+                  { field: 'value' as const, label: 'Valor' },
+                  { field: 'validityDate' as const, label: 'Vigência' },
+                ] as const).map(({ field, label }) => (
+                  <button
+                    key={field}
+                    onClick={() => toggleSort(field)}
+                    className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold border transition-all ${
+                      sortField === field
+                        ? 'bg-[#C9DF8C]/15 text-[#C9DF8C] border-[#C9DF8C]/30'
+                        : 'bg-[#111827] border-gray-800 text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {label}
+                    {sortField === field && (
+                      <span className="text-[10px]">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Filtros de status */}
             <div className="flex flex-wrap gap-2">
               {([
                 { key: 'TODOS',          label: 'Todos',           cls: 'border-gray-700 text-gray-400 hover:border-gray-500',                          active: 'bg-gray-700 text-white border-gray-600' },
                 { key: 'VIGENTE',        label: 'Vigente',         cls: 'border-[#C9DF8C]/20 text-[#C9DF8C]/60 hover:border-[#C9DF8C]/50',              active: 'bg-[#C9DF8C]/15 text-[#C9DF8C] border-[#C9DF8C]/40' },
                 { key: 'VENCE EM BREVE', label: 'Vence em Breve',  cls: 'border-orange-500/20 text-orange-400/60 hover:border-orange-500/40',           active: 'bg-orange-500/15 text-orange-400 border-orange-500/40' },
+                { key: 'RENOVÁVEL',      label: 'Renovável',       cls: 'border-blue-500/20 text-blue-400/60 hover:border-blue-500/40',                  active: 'bg-blue-500/15 text-blue-400 border-blue-500/40' },
                 { key: 'EXPIRADO',       label: 'Expirado',        cls: 'border-red-500/20 text-red-400/60 hover:border-red-500/40',                    active: 'bg-red-500/15 text-red-400 border-red-500/40' },
                 { key: 'ANALISANDO...', label: 'Analisando',       cls: 'border-yellow-500/20 text-yellow-400/60 hover:border-yellow-500/40',           active: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/40' },
               ] as const).map(({ key, label, cls, active }) => (
                 <button
                   key={key}
-                  onClick={() => setStatusFilter(key)}
+                  onClick={() => { setStatusFilter(key); setCurrentPage(1); }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold border transition-all
                     ${statusFilter === key ? active : `bg-[#111827] ${cls}`}`}
                 >
@@ -392,6 +792,7 @@ export default function Home() {
                     <span className={`w-2 h-2 rounded-full ${
                       key === 'VIGENTE' ? 'bg-[#C9DF8C]' :
                       key === 'VENCE EM BREVE' ? 'bg-orange-400' :
+                      key === 'RENOVÁVEL' ? 'bg-blue-400' :
                       key === 'EXPIRADO' ? 'bg-red-500' : 'bg-yellow-400'
                     }`} />
                   )}
@@ -406,14 +807,30 @@ export default function Home() {
 
             <div className="bg-[#111827] rounded-2xl border border-gray-800 shadow-2xl overflow-hidden">
               <div className="divide-y divide-gray-800/50">
-                {filteredContracts.length === 0 && !isLoadingList ? (
+                {isLoadingList ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-6 animate-pulse">
+                      <div className="flex items-center gap-5">
+                        <div className="w-14 h-14 bg-gray-800 rounded-xl" />
+                        <div className="space-y-2">
+                          <div className="h-4 w-48 bg-gray-800 rounded" />
+                          <div className="h-3 w-32 bg-gray-800/60 rounded" />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-8">
+                        <div className="h-4 w-24 bg-gray-800 rounded hidden md:block" />
+                        <div className="h-6 w-28 bg-gray-800 rounded-full" />
+                      </div>
+                    </div>
+                  ))
+                ) : filteredContracts.length === 0 ? (
                   <div className="p-16 text-center text-gray-500 flex flex-col items-center">
                     <FileSearch className="w-12 h-12 mb-4 opacity-20" />
                     <p>Nenhum contrato encontrado para esta pesquisa.</p>
                   </div>
                 ) : (
-                  filteredContracts.map((contract) => {
-                    const contractStatus = getContractStatus(contract.validityDate, contract.status);
+                  paginatedContracts.map((contract) => {
+                    const contractStatus = getContractStatus(contract.validityDate, contract.status, contract.renewal);
                     return (
                       <div key={contract.id} className="group flex flex-col hover:bg-[#0A0F1A]/50 transition-colors">
                         <div 
@@ -422,13 +839,15 @@ export default function Home() {
                         >
                           <div className="flex items-center gap-5">
                             <div className={`p-4 rounded-xl border ${
-                              contractStatus.label === 'VIGENTE' 
-                                ? 'bg-[#C9DF8C]/10 border-[#C9DF8C]/20 text-[#C9DF8C]' 
-                                : contractStatus.label === 'EXPIRADO'
-                                  ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                                  : contractStatus.label === 'VENCE EM BREVE'
-                                    ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
-                                    : 'bg-gray-800 border-gray-700 text-gray-500'
+                              contractStatus.label === 'VIGENTE'
+                                ? 'bg-[#C9DF8C]/10 border-[#C9DF8C]/20 text-[#C9DF8C]'
+                                : contractStatus.label === 'RENOVÁVEL'
+                                  ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                                  : contractStatus.label === 'EXPIRADO'
+                                    ? 'bg-red-500/10 border-red-500/20 text-red-400'
+                                    : contractStatus.label === 'VENCE EM BREVE'
+                                      ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+                                      : 'bg-gray-800 border-gray-700 text-gray-500'
                             }`}>
                               <Building2 className="w-6 h-6" />
                             </div>
@@ -469,36 +888,129 @@ export default function Home() {
 
                         {expandedId === contract.id && (
                           <div className="px-6 pb-6 pt-2">
+                            {/* Botão editar */}
+                            <div className="flex justify-end mb-3">
+                              {editingId === contract.id ? (
+                                <div className="flex gap-2">
+                                  <button onClick={() => setEditingId(null)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-400 hover:text-white border border-gray-700 hover:bg-gray-800 transition-all">
+                                    <X className="w-3 h-3" /> Cancelar
+                                  </button>
+                                  <button onClick={saveEdit} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#C9DF8C] text-[#0A0F1A] hover:bg-[#b8cc7c] transition-all">
+                                    <Check className="w-3 h-3" /> Salvar
+                                  </button>
+                                </div>
+                              ) : (
+                                <button onClick={() => startEditing(contract)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-400 hover:text-[#C9DF8C] border border-gray-700 hover:border-[#C9DF8C]/30 transition-all">
+                                  <Pencil className="w-3 h-3" /> Editar
+                                </button>
+                              )}
+                            </div>
+                            {/* Linha 1: Empresa, Categoria, Renovação, Gestor */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                              <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner">
+                                <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
+                                  <Building2 className="w-4 h-4 text-[#C9DF8C]" /> Empresa
+                                </p>
+                                {editingId === contract.id ? (
+                                  <select value={editForm.company || ''} onChange={e => setEditForm({...editForm, company: e.target.value})} className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]">
+                                    <option value="">Selecione...</option>
+                                    {COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                  </select>
+                                ) : (
+                                  <p className="font-bold text-gray-200 text-sm">{contract.company || "Não informada"}</p>
+                                )}
+                              </div>
+                              <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner">
+                                <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
+                                  <Tag className="w-4 h-4 text-[#C9DF8C]" /> Categoria
+                                </p>
+                                {editingId === contract.id ? (
+                                  <select value={editForm.category || ''} onChange={e => setEditForm({...editForm, category: e.target.value})} className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]">
+                                    <option value="">Selecione...</option>
+                                    {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                  </select>
+                                ) : (
+                                  <p className="font-bold text-gray-200 text-sm">{contract.category || "Aguardando IA..."}</p>
+                                )}
+                              </div>
+                              <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner">
+                                <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
+                                  <RotateCcw className="w-4 h-4 text-[#C9DF8C]" /> Renovação
+                                </p>
+                                {editingId === contract.id ? (
+                                  <select value={editForm.renewal || ''} onChange={e => setEditForm({...editForm, renewal: e.target.value})} className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]">
+                                    <option value="">Selecione...</option>
+                                    {RENEWAL_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                  </select>
+                                ) : (
+                                  <p className="font-bold text-gray-200 text-sm">{contract.renewal || "Aguardando IA..."}</p>
+                                )}
+                              </div>
+                              <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner">
+                                <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
+                                  <User className="w-4 h-4 text-[#C9DF8C]" /> Gestor
+                                </p>
+                                {editingId === contract.id ? (
+                                  <select value={editForm.manager || ''} onChange={e => setEditForm({...editForm, manager: e.target.value})} className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]">
+                                    <option value="">Selecione...</option>
+                                    {managers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                  </select>
+                                ) : (
+                                  <p className="font-bold text-gray-200 text-sm">{contract.manager || "Não informado"}</p>
+                                )}
+                              </div>
+                            </div>
+                            {/* Linha 2: Vigência, CNPJ, Contato, Valores */}
                             <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
                               <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner">
                                 <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
                                   <Calendar className="w-4 h-4 text-[#C9DF8C]" /> Vigência
                                 </p>
-                                <p className="font-bold text-gray-200">{contract.validityDate || "Não identificado"}</p>
+                                {editingId === contract.id ? (
+                                  <input type="text" value={editForm.validityDate || ''} onChange={e => setEditForm({...editForm, validityDate: e.target.value})} placeholder="dd/mm/aaaa" className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]" />
+                                ) : (
+                                  <p className="font-bold text-gray-200">{contract.validityDate || "Não identificado"}</p>
+                                )}
                               </div>
                               <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner">
                                 <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
                                   <Building2 className="w-4 h-4 text-[#C9DF8C]" /> CNPJ
                                 </p>
-                                <p className="font-bold text-gray-200 font-mono">{contract.cnpj || "Não identificado"}</p>
+                                {editingId === contract.id ? (
+                                  <input type="text" value={editForm.cnpj || ''} onChange={e => setEditForm({...editForm, cnpj: e.target.value})} className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]" />
+                                ) : (
+                                  <p className="font-bold text-gray-200 font-mono">{contract.cnpj || "Não identificado"}</p>
+                                )}
                               </div>
                               <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner overflow-hidden">
                                 <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
                                   <Phone className="w-4 h-4 text-[#C9DF8C]" /> Contato
                                 </p>
-                                <p className="font-bold text-gray-200 break-all">{contract.contact || "Não disponível"}</p>
+                                {editingId === contract.id ? (
+                                  <input type="text" value={editForm.contact || ''} onChange={e => setEditForm({...editForm, contact: e.target.value})} className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]" />
+                                ) : (
+                                  <p className="font-bold text-gray-200 break-all">{contract.contact || "Não disponível"}</p>
+                                )}
                               </div>
                               <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner">
                                 <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
                                   <DollarSign className="w-4 h-4 text-[#C9DF8C]" /> Valor Total
                                 </p>
-                                <p className="font-bold text-gray-200">{contract.value || "Em análise..."}</p>
+                                {editingId === contract.id ? (
+                                  <input type="text" value={editForm.value || ''} onChange={e => setEditForm({...editForm, value: e.target.value})} className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]" />
+                                ) : (
+                                  <p className="font-bold text-gray-200">{contract.value || "Em análise..."}</p>
+                                )}
                               </div>
                               <div className="bg-[#0A0F1A] p-4 rounded-xl border border-gray-800/60 shadow-inner">
                                 <p className="text-xs text-gray-500 mb-2 flex items-center gap-2 uppercase font-bold tracking-wider">
                                   <DollarSign className="w-4 h-4 text-[#C9DF8C]" /> Mensalidade
                                 </p>
-                                <p className="font-bold text-gray-200">{contract.monthlyValue || "Não aplicável"}</p>
+                                {editingId === contract.id ? (
+                                  <input type="text" value={editForm.monthlyValue || ''} onChange={e => setEditForm({...editForm, monthlyValue: e.target.value})} className="w-full bg-[#111827] border border-gray-700 text-white rounded-lg py-1.5 px-2 text-sm outline-none focus:border-[#C9DF8C]" />
+                                ) : (
+                                  <p className="font-bold text-gray-200">{contract.monthlyValue || "Não aplicável"}</p>
+                                )}
                               </div>
                             </div>
 
@@ -545,6 +1057,133 @@ export default function Home() {
                 )}
               </div>
             </div>
+
+            {/* Paginação */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-sm text-gray-500">
+                  Mostrando {((currentPage - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, filteredContracts.length)} de {filteredContracts.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 rounded-lg text-sm font-bold border border-gray-800 bg-[#111827] text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Anterior
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`w-9 h-9 rounded-lg text-sm font-bold transition-all ${
+                        currentPage === page
+                          ? 'bg-[#C9DF8C] text-[#0A0F1A]'
+                          : 'bg-[#111827] border border-gray-800 text-gray-400 hover:bg-gray-800'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 rounded-lg text-sm font-bold border border-gray-800 bg-[#111827] text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Próxima
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================== CADASTRO ===================== */}
+        {activeTab === 'cadastro' && (
+          <div className="space-y-6">
+            <div className="bg-[#111827] rounded-2xl border border-gray-800 p-10 shadow-2xl">
+              <div className="text-center mb-10">
+                <h2 className="text-2xl font-bold text-white">Cadastros do Sistema</h2>
+                <p className="text-gray-400 mt-2">Gerencie as categorias e gestores disponíveis para classificação de contratos.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Categorias */}
+                <div className="bg-[#0A0F1A] rounded-2xl border border-gray-800/60 p-6">
+                  <h3 className="text-sm font-black text-[#C9DF8C] uppercase tracking-[0.15em] flex items-center gap-2 mb-2">
+                    <Tag className="w-4 h-4" /> Categorias
+                  </h3>
+                  <p className="text-xs text-gray-500 mb-4">Categorias que a IA classificará nos contratos.</p>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addCategory()}
+                      placeholder="Nova categoria..."
+                      className="flex-1 bg-[#111827] border border-gray-700 text-white placeholder-gray-600 rounded-lg py-2 px-4 focus:border-[#C9DF8C] outline-none text-sm"
+                    />
+                    <button
+                      onClick={addCategory}
+                      className="bg-[#C9DF8C] hover:bg-[#b8cc7c] text-[#0A0F1A] px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" /> Adicionar
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map(cat => (
+                      <span key={cat.id} className="flex items-center gap-2 bg-[#111827] border border-gray-700 text-gray-300 px-3 py-1.5 rounded-full text-xs font-medium">
+                        {cat.name}
+                        <button onClick={() => deleteCategory(cat.id)} className="text-gray-500 hover:text-red-400 transition-colors">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    {categories.length === 0 && (
+                      <p className="text-gray-600 text-xs italic">Nenhuma categoria cadastrada.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Gestores */}
+                <div className="bg-[#0A0F1A] rounded-2xl border border-gray-800/60 p-6">
+                  <h3 className="text-sm font-black text-[#C9DF8C] uppercase tracking-[0.15em] flex items-center gap-2 mb-2">
+                    <User className="w-4 h-4" /> Gestores
+                  </h3>
+                  <p className="text-xs text-gray-500 mb-4">Gestores disponíveis para atribuir aos contratos.</p>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      type="text"
+                      value={newManagerName}
+                      onChange={(e) => setNewManagerName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addManager()}
+                      placeholder="Novo gestor..."
+                      className="flex-1 bg-[#111827] border border-gray-700 text-white placeholder-gray-600 rounded-lg py-2 px-4 focus:border-[#C9DF8C] outline-none text-sm"
+                    />
+                    <button
+                      onClick={addManager}
+                      className="bg-[#C9DF8C] hover:bg-[#b8cc7c] text-[#0A0F1A] px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" /> Adicionar
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {managers.map(m => (
+                      <span key={m.id} className="flex items-center gap-2 bg-[#111827] border border-gray-700 text-gray-300 px-3 py-1.5 rounded-full text-xs font-medium">
+                        {m.name}
+                        <button onClick={() => deleteManager(m.id)} className="text-gray-500 hover:text-red-400 transition-colors">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    {managers.length === 0 && (
+                      <p className="text-gray-600 text-xs italic">Nenhum gestor cadastrado.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <DevSignature />
           </div>
         )}
       </div>

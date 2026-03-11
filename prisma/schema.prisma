@@ -10,14 +10,28 @@ datasource db {
 
 model Contract {
   id            String   @id @default(uuid())
-  name          String   
-  fileName      String   
+  name          String
+  fileName      String
   status        String   @default("Analisando")
   aiSummary     String?
-  validityDate  String?  
-  cnpj          String? 
-  contact       String?  
-  value         String?  
+  validityDate  String?
+  cnpj          String?
+  contact       String?
+  value         String?
   monthlyValue  String?
+  company       String?
+  category      String?
+  renewal       String?
+  manager       String?
   createdAt     DateTime @default(now())
+}
+
+model Category {
+  id    String @id @default(uuid())
+  name  String @unique
+}
+
+model Manager {
+  id    String @id @default(uuid())
+  name  String @unique
 }

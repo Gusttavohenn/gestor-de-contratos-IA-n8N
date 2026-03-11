@@ -1,4 +1,4 @@
-# Minas Port Docs
+# Gestor de Contrato Docs
 
 Sistema de gestao de contratos com analise automatizada por IA. Faz upload de PDFs de contratos, extrai dados automaticamente via n8n + IA e organiza tudo em um painel de controle.
 

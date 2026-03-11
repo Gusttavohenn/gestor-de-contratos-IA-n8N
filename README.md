@@ -1,36 +1,148 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Minas Port Docs
 
-## Getting Started
+Sistema de gestao de contratos com analise automatizada por IA. Faz upload de PDFs de contratos, extrai dados automaticamente via n8n + IA e organiza tudo em um painel de controle.
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router) + React 19
+- **Prisma ORM** + SQLite (via libsql)
+- **Tailwind CSS 4**
+- **Lucide React** (icones)
+- **n8n** (webhook para processamento de IA)
+
+## Pre-requisitos
+
+- [Node.js](https://nodejs.org/) v18+
+- npm (vem com o Node)
+
+## Instalacao
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1. Clone o repositorio
+git clone <url-do-repo>
+cd minas-port-docs
+
+# 2. Instale as dependencias
+npm install
+
+# 3. Configure as variaveis de ambiente
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Edite o `.env` com suas configuracoes:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+# URL do banco SQLite (local)
+DATABASE_URL="file:./dev.db"
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Webhook do n8n para processamento de IA
+N8N_WEBHOOK_URL="https://seu-n8n.app.n8n.cloud/webhook/seu-webhook-id"
+```
 
-## Learn More
+```bash
+# 4. Gere o cliente Prisma e crie o banco
+npx prisma generate
+npx prisma db push
 
-To learn more about Next.js, take a look at the following resources:
+# 5. Inicie o servidor de desenvolvimento
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Acesse em [http://localhost:3000](http://localhost:3000)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Estrutura do Projeto
 
-## Deploy on Vercel
+```
+minas-port-docs/
+├── prisma/
+│   └── schema.prisma          # Modelos do banco (Contract, Category, Manager)
+├── public/
+│   └── uploads/               # PDFs enviados ficam aqui
+├── src/
+│   ├── app/
+│   │   ├── page.tsx           # Interface principal (SPA com abas)
+│   │   └── api/
+│   │       ├── upload/        # POST - Upload de PDFs + envio ao n8n
+│   │       ├── contracts/
+│   │       │   ├── update/    # POST - Callback do n8n com dados extraidos
+│   │       │   ├── edit/      # PATCH - Edicao manual de campos
+│   │       │   └── delete/    # DELETE - Remover contrato
+│   │       ├── download/      # GET - Download do PDF original
+│   │       ├── categories/    # GET/POST/DELETE - CRUD de categorias
+│   │       └── managers/      # GET/POST/DELETE - CRUD de gestores
+│   └── lib/
+│       └── prisma.ts          # Instancia do Prisma Client
+├── package.json
+└── .env
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Funcionalidades
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Painel
+- Cards com metricas (total de contratos, valor acumulado, vigentes, vencendo)
+- Distribuicao por categoria e por empresa (graficos de barra)
+
+### Analisar Contrato
+- Upload de PDF (unitario ou multiplo)
+- Selecao de empresa e gestor no envio
+- Processamento automatico via n8n + IA
+
+### Base de Contratos
+- Listagem com paginacao (10 por pagina)
+- Busca por nome, empresa, CNPJ, gestor, categoria
+- Filtro por empresa e por status (Vigente, Vence em Breve, Renovavel, Expirado, Analisando)
+- Ordenacao por nome, empresa, valor, vigencia
+- Edicao manual de todos os campos
+- Visualizacao e download do PDF original
+- Exclusao de contratos
+
+### Cadastros
+- Gerenciamento de categorias
+- Gerenciamento de gestores
+
+## Fluxo de Processamento
+
+```
+Upload PDF -> Salva no banco (status: "Analisando")
+           -> Envia PDF ao n8n webhook
+           -> n8n processa com IA (extrai nome, CNPJ, vigencia, valores...)
+           -> n8n chama /api/contracts/update com os dados extraidos
+           -> Contrato atualizado no banco (status: "Ativo")
+```
+
+## Scripts
+
+| Comando | Descricao |
+|---------|-----------|
+| `npm run dev` | Servidor de desenvolvimento |
+| `npm run build` | Build de producao |
+| `npm run start` | Inicia build de producao |
+| `npx prisma studio` | Interface visual do banco |
+| `npx prisma db push` | Sincroniza schema com o banco |
+| `npx prisma generate` | Regenera o Prisma Client |
+
+## Banco de Dados
+
+### Contract
+| Campo | Tipo | Descricao |
+|-------|------|-----------|
+| id | UUID | Identificador unico |
+| name | String | Nome do contrato (extraido pela IA) |
+| fileName | String | Nome do arquivo PDF |
+| status | String | "Analisando" ou "Ativo" |
+| aiSummary | String? | Resumo gerado pela IA |
+| validityDate | String? | Data de vigencia |
+| cnpj | String? | CNPJ da empresa |
+| contact | String? | Contato |
+| value | String? | Valor total |
+| monthlyValue | String? | Valor mensal |
+| company | String? | Empresa do grupo |
+| category | String? | Categoria do contrato |
+| renewal | String? | Tipo de renovacao |
+| manager | String? | Gestor responsavel |
+
+### Category / Manager
+| Campo | Tipo | Descricao |
+|-------|------|-----------|
+| id | UUID | Identificador unico |
+| name | String | Nome (unico) |
